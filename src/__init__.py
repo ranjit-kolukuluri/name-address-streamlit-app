@@ -1,3 +1,4 @@
+# Package initialization
 __version__ = "2.0.0"
 __author__ = "Enterprise Development Team"
 __description__ = "Professional name and address validation platform"
@@ -12,4 +13,3 @@ try:
 except ImportError as e:
     print(f"Warning: Some components could not be imported: {e}")
     __all__ = []
-

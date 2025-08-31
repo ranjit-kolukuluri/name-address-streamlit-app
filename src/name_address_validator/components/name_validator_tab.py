@@ -1,6 +1,7 @@
 # src/name_address_validator/components/name_validator_tab.py
 """
-Name Validator Tab - Handles both single and multi-file name validation
+Name Validator Tab - Clean Implementation
+Handles single, multi-file, and API name validation
 """
 
 import streamlit as st
@@ -9,13 +10,26 @@ import time
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 
+# Import the API tab component
+try:
+    from .name_validation_api_tab import NameValidationAPITab
+    API_TAB_AVAILABLE = True
+except ImportError:
+    API_TAB_AVAILABLE = False
+
 
 class NameValidatorTab:
-    """Name validation tab component"""
+    """Name validation tab component with API testing capabilities"""
     
     def __init__(self, validation_service, logger):
         self.validation_service = validation_service
         self.logger = logger
+        
+        # Initialize the API tab component
+        if API_TAB_AVAILABLE:
+            self.api_tab = NameValidationAPITab(validation_service, logger)
+        else:
+            self.api_tab = None
         
         # Initialize session state for name validation
         if 'name_validation_results' not in st.session_state:
@@ -34,14 +48,17 @@ class NameValidatorTab:
         st.markdown('<div class="validation-card">', unsafe_allow_html=True)
         st.markdown('<div class="section-title">Name Validation Services</div>', unsafe_allow_html=True)
         
-        # Sub-tabs for single and multi-file validation
-        single_tab, multi_tab = st.tabs(["Single Name", "Multi-File Processing"])
+        # Sub-tabs for single, multi-file, and API validation
+        single_tab, multi_tab, api_tab = st.tabs(["Single Name", "Multi-File Processing", "API Testing"])
         
         with single_tab:
             self._render_single_name_validation()
         
         with multi_tab:
             self._render_multi_file_validation()
+        
+        with api_tab:
+            self._render_api_validation()
         
         st.markdown('</div>', unsafe_allow_html=True)
     
@@ -478,3 +495,66 @@ class NameValidatorTab:
                     mime="text/csv",
                     use_container_width=True
                 )
+    
+    def _render_api_validation(self):
+        """Render API validation interface"""
+        if self.api_tab and API_TAB_AVAILABLE:
+            self.api_tab.render()
+        else:
+            # Fallback simple API interface
+            st.markdown("### 🧪 Name Validation API Testing")
+            st.warning("⚠️ Full API component not available. Using basic interface.")
+            
+            # Simple API interface
+            default_payload = {
+                "records": [
+                    {
+                        "uniqueid": "001",
+                        "name": "John Michael Smith",
+                        "gender": "",
+                        "party_type": "I",
+                        "parseInd": "Y"
+                    },
+                    {
+                        "uniqueid": "002", 
+                        "name": "TechCorp Solutions LLC",
+                        "gender": "",
+                        "party_type": "O",
+                        "parseInd": "N"
+                    }
+                ]
+            }
+            
+            import json
+            json_input = st.text_area(
+                "Enter JSON Payload:",
+                value=json.dumps(default_payload, indent=2),
+                height=250,
+                help="Enter valid JSON with records array"
+            )
+            
+            if st.button("🚀 Test API Request", type="primary", use_container_width=True):
+                try:
+                    payload = json.loads(json_input)
+                    st.success("✅ JSON is valid!")
+                    st.json(payload)
+                    
+                    # Mock response
+                    st.markdown("### 📊 Mock API Response")
+                    mock_response = {
+                        "status": "success",
+                        "processed_count": len(payload.get("records", [])),
+                        "results": [
+                            {
+                                "uniqueid": record.get("uniqueid", ""),
+                                "name": record.get("name", ""),
+                                "validation_status": "valid",
+                                "confidence_score": 0.85,
+                                "party_type": "I" if "corp" not in record.get("name", "").lower() else "O"
+                            } for record in payload.get("records", [])
+                        ]
+                    }
+                    st.json(mock_response)
+                    
+                except json.JSONDecodeError as e:
+                    st.error(f"❌ Invalid JSON: {e}")

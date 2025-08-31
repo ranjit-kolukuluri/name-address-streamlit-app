@@ -1,13 +1,14 @@
-# run_app.py
-import sys
-from pathlib import Path
+import streamlit as st
 
-# Add src directory to path
-src_path = Path(__file__).parent / "src"
-sys.path.insert(0, str(src_path))
+st.title("Tab Test")
 
-# Import and run the app
-from name_address_validator.app import main
+tab1, tab2, tab3 = st.tabs(["Tab 1", "Tab 2", "API Testing"]) 
 
-if __name__ == "__main__":
-    main()
+with tab1:
+    st.write("First tab")
+
+with tab2:
+    st.write("Second tab")
+    
+with tab3:
+    st.write("🎉 Third tab is working!")

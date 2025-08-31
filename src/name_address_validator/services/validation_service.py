@@ -448,3 +448,316 @@ class ValidationService:
                 'success': False,
                 'error': error_msg
             }
+        
+def validate_api_records(self, records: List[Dict], include_suggestions: bool = True,
+                            detailed_analysis: bool = True, validate_gender: bool = True,
+                            validate_party_type: bool = True) -> Dict:
+        """
+        Validate records from API payload format
+        
+        Args:
+            records: List of records with format:
+                {
+                    "uniqueid": "string",
+                    "name": "string", 
+                    "gender": "M|F|",
+                    "party_type": "I|O|",
+                    "parseInd": "Y|N|"
+                }
+            include_suggestions: Include name suggestions
+            detailed_analysis: Include detailed parsing analysis
+            validate_gender: Predict gender from names
+            validate_party_type: Predict party type
+        
+        Returns:
+            Dict with validation results in API format
+        """
+        print(f"[SERVICE] 🚀 API validation for {len(records)} records")
+        start_time = time.time()
+        
+        results = []
+        successful_count = 0
+        
+        try:
+            for i, record in enumerate(records):
+                print(f"[SERVICE] Processing API record {i+1}: {record.get('uniqueid', 'unknown')}")
+                
+                try:
+                    # Validate record format
+                    if not isinstance(record, dict):
+                        raise ValueError("Record must be an object")
+                    
+                    if not record.get('uniqueid'):
+                        raise ValueError("uniqueid is required")
+                    
+                    if not record.get('name'):
+                        raise ValueError("name is required")
+                    
+                    # Process the record
+                    result = self._process_api_record(
+                        record, include_suggestions, detailed_analysis,
+                        validate_gender, validate_party_type
+                    )
+                    
+                    results.append(result)
+                    
+                    if result['validation_status'] != 'error':
+                        successful_count += 1
+                        
+                except Exception as e:
+                    error_result = {
+                        'uniqueid': record.get('uniqueid', f'record_{i+1}'),
+                        'name': record.get('name', ''),
+                        'gender': '',
+                        'party_type': '',
+                        'parse_indicator': '',
+                        'validation_status': 'error',
+                        'confidence_score': 0.0,
+                        'parsed_components': {},
+                        'suggestions': {},
+                        'errors': [str(e)],
+                        'warnings': []
+                    }
+                    results.append(error_result)
+                    print(f"[SERVICE] ❌ Error processing record {i+1}: {e}")
+            
+            duration_ms = int((time.time() - start_time) * 1000)
+            
+            response = {
+                'status': 'success',
+                'processed_count': len(results),
+                'successful_count': successful_count,
+                'results': results,
+                'processing_time_ms': duration_ms,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            print(f"[SERVICE] ✅ API validation complete: {successful_count}/{len(results)} successful")
+            return response
+            
+        except Exception as e:
+            error_msg = f"API validation failed: {str(e)}"
+            print(f"[SERVICE] ❌ {error_msg}")
+            return {
+                'status': 'error',
+                'error': error_msg,
+                'processed_count': 0,
+                'successful_count': 0,
+                'results': [],
+                'processing_time_ms': int((time.time() - start_time) * 1000),
+                'timestamp': datetime.now().isoformat()
+            }
+        
+def _process_api_record(self, record: Dict, include_suggestions: bool,
+                           detailed_analysis: bool, validate_gender: bool,
+                           validate_party_type: bool) -> Dict:
+        """Process a single API record"""
+        
+        uniqueid = record['uniqueid']
+        name = record['name'].strip()
+        gender_hint = record.get('gender', '').strip()
+        party_type_hint = record.get('party_type', '').strip()
+        parse_ind = record.get('parseInd', '').strip()
+        
+        print(f"[SERVICE] Processing: ID={uniqueid}, Name='{name}', Gender={gender_hint}, Type={party_type_hint}, Parse={parse_ind}")
+        
+        # Initialize result
+        result = {
+            'uniqueid': uniqueid,
+            'name': name,
+            'gender': gender_hint,
+            'party_type': party_type_hint,
+            'parse_indicator': parse_ind,
+            'validation_status': 'valid',
+            'confidence_score': 0.0,
+            'parsed_components': {},
+            'suggestions': {},
+            'errors': [],
+            'warnings': []
+        }
+        
+        # Determine if organization
+        is_org = self._detect_organization_api(name, party_type_hint)
+        
+        if is_org:
+            # Handle organization
+            result['party_type'] = 'O'
+            result['gender'] = ''
+            result['parse_indicator'] = 'N'  # Don't parse organization names
+            result['parsed_components'] = {
+                'organization_name': name,
+                'first_name': '',
+                'last_name': '',
+                'middle_name': ''
+            }
+            result['confidence_score'] = 0.9
+            print(f"[SERVICE] Detected as organization: {name}")
+            
+        else:
+            # Handle individual name
+            result['party_type'] = 'I'
+            
+            # Parse name if requested
+            if parse_ind.upper() == 'Y' or parse_ind == '':
+                parsed = self._parse_individual_name_api(name)
+                result['parsed_components'] = parsed
+                result['parse_indicator'] = 'Y'
+                
+                print(f"[SERVICE] Parsed name: {parsed}")
+                
+                # Validate parsed components using existing validator
+                if self.is_name_validation_available():
+                    first_name = parsed.get('first_name', '')
+                    last_name = parsed.get('last_name', '')
+                    
+                    if first_name or last_name:
+                        # Use existing name validator
+                        validation_result = self.name_validator.validate(first_name, last_name)
+                        
+                        if validation_result.get('valid'):
+                            result['validation_status'] = 'valid'
+                            result['confidence_score'] = validation_result.get('confidence', 0.8)
+                        else:
+                            result['validation_status'] = 'warning'
+                            result['confidence_score'] = 0.4
+                            result['warnings'].extend(validation_result.get('errors', []))
+                        
+                        # Add suggestions from validator
+                        if include_suggestions and validation_result.get('suggestions'):
+                            result['suggestions'].update(validation_result['suggestions'])
+                    else:
+                        result['validation_status'] = 'invalid'
+                        result['errors'].append('Could not parse name into valid components')
+                        result['confidence_score'] = 0.2
+                else:
+                    # Basic validation without dictionaries
+                    if parsed['first_name'] or parsed['last_name']:
+                        result['validation_status'] = 'valid'
+                        result['confidence_score'] = 0.7
+                    else:
+                        result['validation_status'] = 'invalid'
+                        result['errors'].append('Could not parse name into valid components')
+                        result['confidence_score'] = 0.2
+                
+                # Predict gender if requested
+                if validate_gender and not gender_hint and parsed.get('first_name'):
+                    predicted_gender = self._predict_gender_api(parsed['first_name'])
+                    if predicted_gender:
+                        result['gender'] = predicted_gender
+                        result['suggestions']['gender_prediction'] = predicted_gender
+                        print(f"[SERVICE] Predicted gender: {predicted_gender}")
+                
+            else:
+                result['parse_indicator'] = 'N'
+                result['parsed_components'] = {
+                    'original_name': name,
+                    'first_name': '',
+                    'last_name': '',
+                    'middle_name': ''
+                }
+                result['confidence_score'] = 0.6
+        
+        # Add party type prediction if requested
+        if validate_party_type and not party_type_hint:
+            result['suggestions']['party_type_prediction'] = result['party_type']
+        
+        print(f"[SERVICE] ✅ Result: Status={result['validation_status']}, Confidence={result['confidence_score']:.2f}")
+        return result
+def _detect_organization_api(self, name: str, party_type_hint: str) -> bool:
+        """Detect if name is an organization"""
+        if party_type_hint.upper() == 'O':
+            return True
+        elif party_type_hint.upper() == 'I':
+            return False
+        
+        # Auto-detect based on name
+        name_lower = name.lower()
+        org_indicators = [
+            'llc', 'inc', 'corp', 'company', 'ltd', 'co.', 'corporation',
+            'hospital', 'medical', 'clinic', 'center', 'services', 'solutions',
+            'group', 'partners', 'associates', 'firm', 'office', 'bank',
+            'trust', 'foundation', 'institute', 'university', 'college',
+            'school', 'church', 'ministry', 'department', 'agency'
+        ]
+        
+        return any(indicator in name_lower for indicator in org_indicators)
+    
+def _parse_individual_name_api(self, full_name: str) -> Dict[str, str]:
+    """Parse individual name into components"""
+    if not full_name or not full_name.strip():
+        return {'first_name': '', 'last_name': '', 'middle_name': ''}
+
+    # Clean the name
+    name = full_name.strip()
+
+    # Remove common titles and suffixes
+    titles = ['mr', 'mrs', 'ms', 'miss', 'dr', 'prof', 'rev', 'judge', 'senator', 'captain']
+    suffixes = ['jr', 'sr', 'iii', 'iv', 'md', 'phd', 'cpa', 'esq']
+
+    # Simple parsing logic
+    parts = name.split()
+    clean_parts = []
+
+    for part in parts:
+        part_lower = part.lower().rstrip('.')
+        if part_lower not in titles and part_lower not in suffixes:
+            clean_parts.append(part)
+
+    if len(clean_parts) == 0:
+        return {'first_name': '', 'last_name': '', 'middle_name': ''}
+    elif len(clean_parts) == 1:
+        return {'first_name': clean_parts[0], 'last_name': '', 'middle_name': ''}
+    elif len(clean_parts) == 2:
+        return {'first_name': clean_parts[0], 'last_name': clean_parts[1], 'middle_name': ''}
+    else:
+        return {
+            'first_name': clean_parts[0],
+            'last_name': clean_parts[-1],
+            'middle_name': ' '.join(clean_parts[1:-1])
+        }        
+def _predict_gender_api(self, first_name: str) -> str:
+        """Predict gender from first name"""
+        if not first_name:
+            return ''
+        
+        # Use dictionary loader if available
+        if (hasattr(self, 'name_standardizer') and 
+            self.name_standardizer and
+            hasattr(self.name_standardizer, 'dictionary_loader') and
+            self.name_standardizer.dictionary_loader):
+            
+            return self.name_standardizer.dictionary_loader.predict_gender(first_name)
+        
+        # Simple heuristic fallback
+        name_lower = first_name.lower()
+        
+        # Common female endings
+        if name_lower.endswith(('a', 'ia', 'ana', 'ella', 'ina', 'lyn', 'lynn', 'elle')):
+            return 'F'
+        
+        # Common male endings  
+        elif name_lower.endswith(('er', 'on', 'an', 'en', 'son')):
+            return 'M'
+        
+        # Specific common names
+        common_female = {'mary', 'jennifer', 'patricia', 'linda', 'barbara', 'susan', 'jessica', 'sarah', 'karen', 'nancy'}
+        common_male = {'james', 'john', 'robert', 'michael', 'william', 'david', 'richard', 'charles', 'joseph', 'thomas'}
+        
+        if name_lower in common_female:
+            return 'F'
+        elif name_lower in common_male:
+            return 'M'
+        
+        return ''
+
+def get_api_service_status(self) -> Dict:
+        """Get API service status"""
+        return {
+            'name_validation_api': True,
+            'name_validation_available': self.is_name_validation_available(),
+            'address_validation_available': self.is_address_validation_available(),
+            'dictionary_support': hasattr(self, 'name_standardizer') and self.name_standardizer is not None,
+            'gender_prediction': True,
+            'organization_detection': True,
+            'timestamp': datetime.now().isoformat()
+        }    

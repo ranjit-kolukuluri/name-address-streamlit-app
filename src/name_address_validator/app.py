@@ -1,6 +1,7 @@
 # src/name_address_validator/app.py
 """
 Complete Working Enterprise Name & Address Validator - Main Application
+UPDATED to use NameValidatorTab component with API functionality
 """
 
 import streamlit as st
@@ -19,16 +20,23 @@ def setup_python_path():
 
 setup_python_path()
 
-# Import services
+# Import services and components
 try:
     from name_address_validator.services.validation_service import ValidationService
     from name_address_validator.utils.config import load_usps_credentials
     from name_address_validator.utils.logger import AppLogger
     
+    # Import the tab components
+    from name_address_validator.components.name_validator_tab import NameValidatorTab
+    from name_address_validator.components.address_validator_tab import AddressValidatorTab
+    from name_address_validator.components.monitoring_tab import MonitoringTab
+    
+    COMPONENTS_AVAILABLE = True
+    
 except ImportError as e:
     st.error(f"❌ Import Error: {e}")
     st.error("Please ensure all components are properly installed")
-    st.stop()
+    COMPONENTS_AVAILABLE = False
 
 
 class EnterpriseValidatorApp:
@@ -38,7 +46,13 @@ class EnterpriseValidatorApp:
         self.logger = AppLogger()
         self.validation_service = None
         
+        # Initialize tab components
+        self.name_validator_tab = None
+        self.address_validator_tab = None
+        self.monitoring_tab = None
+        
         self._initialize_services()
+        self._initialize_components()
     
     def _initialize_services(self):
         """Initialize core services"""
@@ -48,6 +62,23 @@ class EnterpriseValidatorApp:
         except Exception as e:
             self.logger.log(f"❌ Failed to initialize services: {e}", "SYSTEM", level="ERROR")
             st.error(f"Service initialization failed: {e}")
+    
+    def _initialize_components(self):
+        """Initialize tab components"""
+        if not COMPONENTS_AVAILABLE or not self.validation_service:
+            self.logger.log("❌ Cannot initialize components - missing dependencies", "SYSTEM", level="ERROR")
+            return
+        
+        try:
+            # Initialize tab components
+            self.name_validator_tab = NameValidatorTab(self.validation_service, self.logger)
+            self.address_validator_tab = AddressValidatorTab(self.validation_service, self.logger)
+            self.monitoring_tab = MonitoringTab(self.logger)
+            
+            self.logger.log("✅ Tab components initialized", "SYSTEM")
+        except Exception as e:
+            self.logger.log(f"❌ Failed to initialize components: {e}", "SYSTEM", level="ERROR")
+            st.error(f"Component initialization failed: {e}")
     
     def apply_enterprise_styling(self):
         """Apply clean enterprise styling"""
@@ -150,6 +181,22 @@ class EnterpriseValidatorApp:
             box-shadow: 0 8px 25px rgba(59, 130, 246, 0.4);
         }
         
+        /* Validation card styling */
+        .validation-card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 16px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        
+        .section-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #1e40af;
+            margin-bottom: 1rem;
+        }
+        
         /* Hide Streamlit branding */
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
@@ -165,7 +212,7 @@ class EnterpriseValidatorApp:
         st.markdown('''
         <div class="enterprise-header">
             <div class="main-title">Enterprise Validator</div>
-            <div class="subtitle">Professional Name & Address Validation Platform</div>
+            <div class="subtitle">Professional Name & Address Validation Platform with API Testing</div>
         </div>
         ''', unsafe_allow_html=True)
         
@@ -187,371 +234,62 @@ class EnterpriseValidatorApp:
             st.markdown(f'<div style="text-align: center;">{status_html}</div>', unsafe_allow_html=True)
     
     def render_name_validation_tab(self):
-        """Render name validation functionality"""
-        st.markdown("## 👤 Name Validation Services")
-        
-        # Sub-tabs for single and multi-file validation
-        single_tab, multi_tab = st.tabs(["Single Name", "Multi-File Processing"])
-        
-        with single_tab:
-            self._render_single_name_validation()
-        
-        with multi_tab:
-            self._render_multi_file_name_validation()
-    
-    def _render_single_name_validation(self):
-        """Render single name validation"""
-        st.markdown("### Single Name Validation")
-        
-        with st.form("single_name_form"):
-            col1, col2 = st.columns(2)
+        """Render name validation functionality using the component"""
+        if self.name_validator_tab and COMPONENTS_AVAILABLE:
+            # Use the component which now includes API testing
+            self.name_validator_tab.render()
+        else:
+            # Fallback implementation if components not available
+            st.error("❌ Name Validation component not available")
+            st.info("Please ensure all components are properly installed and configured")
             
-            with col1:
-                first_name = st.text_input("First Name", placeholder="Enter first name")
-            
-            with col2:
-                last_name = st.text_input("Last Name", placeholder="Enter last name")
-            
-            submit_button = st.form_submit_button("🔍 Validate Name", type="primary")
-            
-            if submit_button and first_name.strip() and last_name.strip():
-                self._process_single_name_validation(first_name, last_name)
-    
-    def _process_single_name_validation(self, first_name: str, last_name: str):
-        """Process single name validation"""
-        if not self.validation_service or not self.validation_service.is_name_validation_available():
-            st.error("❌ Name validation service unavailable")
-            return
-        
-        try:
-            with st.spinner("🔄 Validating name..."):
-                result = self.validation_service.name_validator.validate(first_name, last_name)
-                
-                st.markdown("### 🎉 Validation Results")
-                
-                # Status overview
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    status = "✅ Valid" if result['valid'] else "❌ Invalid"
-                    st.metric("Name Status", status)
-                
-                with col2:
-                    confidence = result.get('confidence', 0)
-                    st.metric("Confidence", f"{confidence:.1%}")
-                
-                with col3:
-                    issues = len(result.get('errors', [])) + len(result.get('warnings', []))
-                    st.metric("Issues Found", issues)
-                
-                # Show detailed results
-                if result.get('analysis'):
-                    with st.expander("📊 Detailed Analysis"):
-                        analysis = result['analysis']
-                        
-                        if 'first_name' in analysis:
-                            first_info = analysis['first_name']
-                            st.write(f"**First Name:** {'Common' if first_info.get('is_common') else 'Uncommon'}")
-                        
-                        if 'last_name' in analysis:
-                            last_info = analysis['last_name']
-                            st.write(f"**Last Name:** {'Common' if last_info.get('is_common') else 'Uncommon'}")
-                
-                # Show suggestions if available
-                if result.get('suggestions'):
-                    with st.expander("💡 Name Suggestions"):
-                        suggestions = result['suggestions']
-                        
-                        if 'first_name' in suggestions and suggestions['first_name']:
-                            st.write("**First Name Suggestions:**")
-                            for suggestion in suggestions['first_name'][:3]:
-                                st.write(f"- {suggestion['suggestion']} ({suggestion['confidence']:.1%})")
-                        
-                        if 'last_name' in suggestions and suggestions['last_name']:
-                            st.write("**Last Name Suggestions:**")
-                            for suggestion in suggestions['last_name'][:3]:
-                                st.write(f"- {suggestion['suggestion']} ({suggestion['confidence']:.1%})")
-                
-        except Exception as e:
-            st.error(f"❌ Validation error: {str(e)}")
-    
-    def _render_multi_file_name_validation(self):
-        """Render multi-file name validation"""
-        st.markdown("### Multi-File Name Processing")
-        
-        uploaded_files = st.file_uploader(
-            "Choose CSV files",
-            type=['csv'],
-            accept_multiple_files=True,
-            help="Upload CSV files containing names"
-        )
-        
-        if uploaded_files:
-            st.success(f"📁 {len(uploaded_files)} files uploaded")
-            
-            if st.button("🚀 Process Names", type="primary"):
-                self._process_multi_file_names(uploaded_files)
-    
-    def _process_multi_file_names(self, uploaded_files):
-        """Process multiple files for name validation"""
-        try:
-            file_data_list = []
-            for uploaded_file in uploaded_files:
-                df = pd.read_csv(uploaded_file)
-                file_data_list.append((df, uploaded_file.name))
-            
-            with st.spinner("🔄 Processing names..."):
-                # Simple processing - just parse names from the first few columns
-                all_results = []
-                
-                for df, filename in file_data_list:
-                    # Try to find name columns
-                    name_cols = [col for col in df.columns if any(name_word in col.lower() 
-                                for name_word in ['name', 'first', 'last', 'fname', 'lname'])]
-                    
-                    if len(name_cols) >= 2:
-                        first_col, last_col = name_cols[0], name_cols[1]
-                        
-                        for idx, row in df.head(10).iterrows():  # Process first 10 rows
-                            first_name = str(row[first_col]).strip()
-                            last_name = str(row[last_col]).strip()
-                            
-                            if first_name and last_name and first_name != 'nan' and last_name != 'nan':
-                                result = self.validation_service.name_validator.validate(first_name, last_name)
-                                all_results.append({
-                                    'file': filename,
-                                    'row': idx + 1,
-                                    'first_name': first_name,
-                                    'last_name': last_name,
-                                    'status': 'Valid' if result['valid'] else 'Invalid',
-                                    'confidence': f"{result['confidence']:.1%}"
-                                })
-                
-                if all_results:
-                    st.markdown("### 📊 Processing Results")
-                    results_df = pd.DataFrame(all_results)
-                    st.dataframe(results_df, use_container_width=True)
-                    
-                    # Download option
-                    csv = results_df.to_csv(index=False)
-                    st.download_button(
-                        "📥 Download Results",
-                        data=csv,
-                        file_name=f"name_validation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                        mime="text/csv"
-                    )
-                else:
-                    st.warning("No valid names found in the uploaded files")
-                    
-        except Exception as e:
-            st.error(f"❌ Processing error: {str(e)}")
+            # Show basic debug info
+            if self.validation_service:
+                st.write("**Service Status:**")
+                st.write(f"- Name validation available: {self.validation_service.is_name_validation_available()}")
+                st.write(f"- Components available: {COMPONENTS_AVAILABLE}")
     
     def render_address_validation_tab(self):
-        """Render address validation functionality"""
-        st.markdown("## 🏠 Address Validation Services")
-        
-        if not self.validation_service or not self.validation_service.is_address_validation_available():
-            st.warning("⚠️ **USPS API Not Configured**")
-            st.write("Address validation requires USPS API credentials.")
-            st.write("Create a `.env` file with:")
-            st.code("USPS_CLIENT_ID=your_client_id\nUSPS_CLIENT_SECRET=your_client_secret")
-            return
-        
-        # Sub-tabs for single and multi-file validation
-        single_tab, multi_tab = st.tabs(["Single Address", "Multi-File Processing"])
-        
-        with single_tab:
-            self._render_single_address_validation()
-        
-        with multi_tab:
-            self._render_multi_file_address_validation()
-    
-    def _render_single_address_validation(self):
-        """Render single address validation"""
-        st.markdown("### Single Address Validation")
-        
-        with st.form("single_address_form"):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                first_name = st.text_input("First Name", placeholder="Enter first name")
-            
-            with col2:
-                last_name = st.text_input("Last Name", placeholder="Enter last name")
-            
-            street_address = st.text_input("Street Address", placeholder="123 Main Street")
-            
-            col3, col4, col5 = st.columns([3, 1, 2])
-            
-            with col3:
-                city = st.text_input("City", placeholder="New York")
-            
-            with col4:
-                state = st.text_input("State", placeholder="NY", max_chars=2)
-            
-            with col5:
-                zip_code = st.text_input("ZIP Code", placeholder="10001")
-            
-            submit_button = st.form_submit_button("🔍 Validate Address", type="primary")
-            
-            if submit_button:
-                if all([first_name.strip(), last_name.strip(), street_address.strip(), 
-                       city.strip(), state.strip(), zip_code.strip()]):
-                    self._process_single_address_validation(
-                        first_name, last_name, street_address, city, state, zip_code
-                    )
-                else:
-                    st.error("Please fill in all fields")
-    
-    def _process_single_address_validation(self, first_name, last_name, street_address, city, state, zip_code):
-        """Process single address validation"""
-        try:
-            with st.spinner("🔄 Validating address with USPS..."):
-                result = self.validation_service.validate_single_record(
-                    first_name, last_name, street_address, city, state, zip_code
-                )
-                
-                st.markdown("### 🎉 Address Validation Results")
-                
-                # Status overview
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    overall_status = "✅ Valid" if result['overall_valid'] else "❌ Invalid"
-                    st.metric("Overall Status", overall_status)
-                
-                with col2:
-                    address_result = result.get('address_result', {})
-                    deliverable = address_result.get('deliverable', False)
-                    address_status = "✅ Deliverable" if deliverable else "❌ Not Deliverable"
-                    st.metric("Address Status", address_status)
-                
-                with col3:
-                    confidence = result.get('overall_confidence', 0)
-                    st.metric("Confidence", f"{confidence:.1%}")
-                
-                # Show standardized address if available
-                if address_result.get('standardized'):
-                    standardized = address_result['standardized']
-                    st.markdown("### 📮 USPS Standardized Address")
-                    st.success(f"""
-                    **{standardized['street_address']}**  
-                    **{standardized['city']}, {standardized['state']} {standardized['zip_code']}**
-                    """)
-                
-        except Exception as e:
-            st.error(f"❌ Validation error: {str(e)}")
-    
-    def _render_multi_file_address_validation(self):
-        """Render multi-file address validation"""
-        st.markdown("### Multi-File Address Processing")
-        
-        uploaded_files = st.file_uploader(
-            "Choose CSV files",
-            type=['csv'],
-            accept_multiple_files=True,
-            help="Upload CSV files containing addresses",
-            key="address_upload"
-        )
-        
-        if uploaded_files:
-            st.success(f"📁 {len(uploaded_files)} files uploaded")
-            
-            if st.button("🚀 Process Addresses", type="primary"):
-                self._process_multi_file_addresses(uploaded_files)
-    
-    def _process_multi_file_addresses(self, uploaded_files):
-        """Process multiple files for address validation"""
-        try:
-            file_data_list = []
-            for uploaded_file in uploaded_files:
-                df = pd.read_csv(uploaded_file)
-                file_data_list.append((df, uploaded_file.name))
-            
-            with st.spinner("🔄 Processing addresses..."):
-                all_results = []
-                
-                for df, filename in file_data_list:
-                    # Try to find address columns
-                    addr_cols = [col for col in df.columns if any(addr_word in col.lower() 
-                                for addr_word in ['address', 'street', 'city', 'state', 'zip'])]
-                    
-                    if len(addr_cols) >= 4:  # Need at least street, city, state, zip
-                        for idx, row in df.head(5).iterrows():  # Process first 5 rows
-                            try:
-                                # Simple column mapping
-                                street = str(row[addr_cols[0]])
-                                city = str(row[addr_cols[1]]) if len(addr_cols) > 1 else ""
-                                state = str(row[addr_cols[2]]) if len(addr_cols) > 2 else ""
-                                zip_code = str(row[addr_cols[3]]) if len(addr_cols) > 3 else ""
-                                
-                                if all([street, city, state, zip_code]) and all(x != 'nan' for x in [street, city, state, zip_code]):
-                                    address_data = {
-                                        'street_address': street,
-                                        'city': city,
-                                        'state': state,
-                                        'zip_code': zip_code
-                                    }
-                                    
-                                    result = self.validation_service.address_validator.validate_address(address_data)
-                                    
-                                    all_results.append({
-                                        'file': filename,
-                                        'row': idx + 1,
-                                        'original_address': f"{street}, {city}, {state} {zip_code}",
-                                        'deliverable': result.get('deliverable', False),
-                                        'status': 'Valid' if result.get('success') and result.get('deliverable') else 'Invalid'
-                                    })
-                            except Exception as e:
-                                continue
-                
-                if all_results:
-                    st.markdown("### 📊 Processing Results")
-                    results_df = pd.DataFrame(all_results)
-                    st.dataframe(results_df, use_container_width=True)
-                    
-                    # Download option
-                    csv = results_df.to_csv(index=False)
-                    st.download_button(
-                        "📥 Download Results",
-                        data=csv,
-                        file_name=f"address_validation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                        mime="text/csv"
-                    )
-                else:
-                    st.warning("No valid addresses found in the uploaded files")
-                    
-        except Exception as e:
-            st.error(f"❌ Processing error: {str(e)}")
+        """Render address validation functionality using the component"""
+        if self.address_validator_tab and COMPONENTS_AVAILABLE:
+            self.address_validator_tab.render()
+        else:
+            # Fallback implementation
+            st.error("❌ Address Validation component not available")
+            st.info("Please ensure all components are properly installed and configured")
     
     def render_monitoring_tab(self):
-        """Render monitoring functionality"""
-        st.markdown("## 📊 System Monitoring")
-        
-        # Simple system status
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric("Name Service", "✅ Available" if self.validation_service and self.validation_service.is_name_validation_available() else "❌ Unavailable")
-        
-        with col2:
-            st.metric("Address Service", "✅ Available" if self.validation_service and self.validation_service.is_address_validation_available() else "❌ Unavailable")
-        
-        with col3:
-            uptime = datetime.now() - st.session_state.get('app_start_time', datetime.now())
-            st.metric("Uptime", f"{int(uptime.total_seconds() / 60)} min")
-        
-        # Show recent logs if available
-        if hasattr(self.logger, 'logs') and self.logger.logs:
-            st.markdown("### 📝 Recent Activity")
-            recent_logs = self.logger.logs[-10:]  # Last 10 logs
-            
-            for log in recent_logs:
-                timestamp = log['timestamp'].strftime("%H:%M:%S")
-                level_color = {"INFO": "🔵", "WARNING": "🟡", "ERROR": "🔴"}.get(log['level'], "⚪")
-                st.write(f"`{timestamp}` {level_color} **{log['category']}**: {log['message']}")
+        """Render monitoring functionality using the component"""
+        if self.monitoring_tab and COMPONENTS_AVAILABLE:
+            self.monitoring_tab.render()
         else:
-            st.info("No recent activity to display")
+            # Fallback implementation
+            st.markdown("## 📊 System Monitoring")
+            
+            # Simple system status
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                name_status = "✅ Available" if (self.validation_service and 
+                                                self.validation_service.is_name_validation_available()) else "❌ Unavailable"
+                st.metric("Name Service", name_status)
+            
+            with col2:
+                addr_status = "✅ Available" if (self.validation_service and 
+                                               self.validation_service.is_address_validation_available()) else "❌ Unavailable"
+                st.metric("Address Service", addr_status)
+            
+            with col3:
+                uptime = datetime.now() - st.session_state.get('app_start_time', datetime.now())
+                st.metric("Uptime", f"{int(uptime.total_seconds() / 60)} min")
+            
+            # Component status
+            st.markdown("### 🔧 Component Status")
+            st.write(f"- Components Available: {'✅' if COMPONENTS_AVAILABLE else '❌'}")
+            st.write(f"- Validation Service: {'✅' if self.validation_service else '❌'}")
+            st.write(f"- Name Validator Tab: {'✅' if self.name_validator_tab else '❌'}")
+            st.write(f"- Address Validator Tab: {'✅' if self.address_validator_tab else '❌'}")
+            st.write(f"- Monitoring Tab: {'✅' if self.monitoring_tab else '❌'}")
     
     def run(self):
         """Main application entry point"""
@@ -573,6 +311,15 @@ class EnterpriseValidatorApp:
         # Render header
         self.render_header()
         
+        # Debug info (can be removed in production)
+        if st.checkbox("🔧 Show Debug Info", value=False):
+            st.write("**Debug Information:**")
+            st.write(f"- Components Available: {COMPONENTS_AVAILABLE}")
+            st.write(f"- Validation Service: {self.validation_service is not None}")
+            st.write(f"- Name Validator Tab: {self.name_validator_tab is not None}")
+            st.write(f"- Address Validator Tab: {self.address_validator_tab is not None}")
+            st.write(f"- Monitoring Tab: {self.monitoring_tab is not None}")
+        
         # Main tabs
         name_tab, address_tab, monitoring_tab = st.tabs([
             "👤 Name Validation", 
@@ -592,8 +339,17 @@ class EnterpriseValidatorApp:
 
 def main():
     """Application entry point"""
-    app = EnterpriseValidatorApp()
-    app.run()
+    try:
+        app = EnterpriseValidatorApp()
+        app.run()
+    except Exception as e:
+        st.error(f"❌ Application failed to start: {str(e)}")
+        st.error("Please check your installation and configuration")
+        
+        # Show debug info
+        st.write("**Debug Information:**")
+        st.write(f"- Components Available: {COMPONENTS_AVAILABLE}")
+        st.code(str(e))
 
 
 if __name__ == "__main__":
