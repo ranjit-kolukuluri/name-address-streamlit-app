@@ -697,22 +697,35 @@ async def process_csv_url_background(job_id: str, csv_url: Optional[str], csv_pa
         logger.log(f"Background CSV URL processing failed: {e}", "BACKGROUND_TASK", level="ERROR")
 
 def extract_record_from_csv_row(row: pd.Series, index: int) -> Dict:
-    """Extract name record from CSV row"""
+    """Extract name record from CSV row - FIXED VERSION"""
     
-    # Try to find name column
-    name_columns = ['name', 'full_name', 'fullname', 'Name', 'Full_Name']
-    name = ''
+    # Enhanced column mapping to handle different naming conventions
+    column_mappings = {
+        'uniqueid': ['uniqueid', 'uniqueId', 'unique_id', 'UniqueId', 'UNIQUEID', 'id', 'Id', 'ID'],
+        'name': ['name', 'Name', 'NAME', 'full_name', 'fullname', 'FullName', 'Full_Name'],
+        'gender': ['gender', 'Gender', 'GENDER', 'sex', 'Sex', 'SEX'],
+        'party_type': ['party_type', 'partyType', 'PartyType', 'Party_Type', 'PARTY_TYPE', 'type', 'Type'],
+        'parseInd': ['parseInd', 'parse_ind', 'ParseInd', 'Parse_Ind', 'PARSE_IND', 'parseind']
+    }
     
-    for col in name_columns:
-        if col in row.index and pd.notna(row[col]):
-            name = str(row[col]).strip()
-            break
+    def find_column_value(field_mappings: List[str], default: str = '') -> str:
+        """Find the first matching column and return its value"""
+        for col_name in field_mappings:
+            if col_name in row.index and pd.notna(row[col_name]):
+                value = str(row[col_name]).strip()
+                if value and value.lower() not in ['nan', 'none', '']:
+                    return value
+        return default
     
-    # Extract other fields if available
-    uniqueid = str(row.get('uniqueid', row.get('id', f'row_{index+1}')))
-    gender = str(row.get('gender', row.get('Gender', ''))).strip()
-    party_type = str(row.get('party_type', row.get('Party_Type', ''))).strip()
-    parse_ind = str(row.get('parseInd', row.get('Parse_Ind', 'Y'))).strip()
+    # Extract values using the enhanced mapping
+    uniqueid = find_column_value(column_mappings['uniqueid'], f'row_{index+1}')
+    name = find_column_value(column_mappings['name'], '')
+    gender = find_column_value(column_mappings['gender'], '')
+    party_type = find_column_value(column_mappings['party_type'], '')
+    parse_ind = find_column_value(column_mappings['parseInd'], 'Y')
+    
+    # Debug logging
+    print(f"[CSV] Row {index+1}: uniqueid='{uniqueid}', name='{name}', gender='{gender}', party_type='{party_type}', parseInd='{parse_ind}'")
     
     return {
         'uniqueid': uniqueid,
